@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>AI Group Discussion Room</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      max-width: 800px;
+      margin: 0 auto;
+      padding: 20px;
+      background-color: #f5f5f5;
+    }
+    #status {
+      margin-bottom: 10px;
+      padding: 10px;
+      border-radius: 5px;
+      text-align: center;
+      font-weight: bold;
+    }
+    .connected { background-color: #d4edda; color: #155724; }
+    .disconnected { background-color: #f8d7da; color: #721c24; }
+    .connecting { background-color: #fff3cd; color: #856404; }
+
+    #messages {
+      margin-bottom: 20px;
+      height: 400px;
+      overflow-y: auto;
+      border: 1px solid #ccc;
+      border-radius: 8px;
+      padding: 10px;
+      background-color: #fff;
+    }
+    .message {
+      padding: 8px;
+      margin-bottom: 6px;
+      border-radius: 6px;
+    }
+    .message.system { background-color: #eee; color: #333; }
+    .message.user { background-color: #e3f2fd; color: #0d47a1; }
+    .message.agent { background-color: #f3e5f5; color: #4a148c; }
+
+    #mic-level {
+      height: 8px;
+      background-color: #ddd;
+      margin-bottom: 12px;
+      border-radius: 4px;
+      overflow: hidden;
+    }
+    #mic-bar {
+      height: 100%;
+      width: 0%;
+      background-color: #4caf50;
+    }
+
+    #debugInfo {
+      font-family: monospace;
+      font-size: 12px;
+      background: #f0f0f0;
+      border: 1px solid #ccc;
+      padding: 8px;
+      border-radius: 5px;
+      max-height: 150px;
+      overflow-y: auto;
+    }
+  </style>
+</head>
+<body>
+  <h2 style="text-align: center;">🗣️ AI GD Room</h2>
+
+  <div id="unlock-prompt" style="text-align:center; font-size:16px; margin:10px;">
+    🔓 Click anywhere to start the discussion
+  </div>
+  <div id="timer" style="
+    position: fixed;
+    top: 10px;
+    right: 15px;
+    background: #222;
+    color: #fff;
+    padding: 6px 12px;
+    border-radius: 8px;
+    font-family: monospace;
+    z-index: 1000;">
+  05:00
+  </div>
+
+  <div id="status" class="connecting">Connecting...</div>
+  <div id="mic-level"><div id="mic-bar"></div></div>
+  <div id="messages"></div>
+  <div id="debugInfo"></div>
+
+  <!-- Link your updated JS-file.js here -->
+  <script src="JS-file.js"></script>
+
+  <!-- Unlock audio context -->
+  <script>
+    window.onload = () => {
+      initWebSocket();
+
+      document.addEventListener('click', function unlockAudio() {
+        new Audio();  // unlock autoplay restrictions
+        const prompt = document.getElementById("unlock-prompt");
+        if (prompt) prompt.style.display = "none";
+        document.removeEventListener('click', unlockAudio);
+        console.log("🔓 Audio unlocked");
+      });
+    };
+  </script>
+</body>
+</html>

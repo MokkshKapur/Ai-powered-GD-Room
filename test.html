@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>GD Room Voice Test</title>
+</head>
+<body>
+  <h2>🎤 Group Discussion Room (Voice AI Agents)</h2>
+  <button id="start-record">🎙️ Start Recording</button>
+  <button id="stop-record" disabled>⏹️ Stop & Send</button>
+
+  <div id="log" style="margin-top: 20px;"></div>
+
+  <script>
+    const startBtn = document.getElementById("start-record");
+    const stopBtn = document.getElementById("stop-record");
+    const logDiv = document.getElementById("log");
+
+    let mediaRecorder;
+    let audioChunks = [];
+
+    const socket = new WebSocket("ws://localhost:8000/ws/gd");
+
+    socket.onopen = () => {
+      log("✅ Connected to GD room");
+    };
+
+    socket.onmessage = async (event) => {
+      try {
+        const data = JSON.parse(event.data);
+        const { sender, audio } = data;
+
+        log(`🔊 ${sender} is speaking...`);
+
+        // Decode base64 to audio blob
+        const audioBlob = base64ToBlob(audio, "audio/mp3");
+        const audioUrl = URL.createObjectURL(audioBlob);
+        const audioEl = new Audio(audioUrl);
+        audioEl.play();
+      } catch {
+        log(`📩 ${event.data}`);
+      }
+    };
+
+    function base64ToBlob(base64, mime) {
+      const byteChars = atob(base64);
+      const byteNumbers = new Array(byteChars.length);
+      for (let i = 0; i < byteChars.length; i++) {
+        byteNumbers[i] = byteChars.charCodeAt(i);
+      }
+      const byteArray = new Uint8Array(byteNumbers);
+      return new Blob([byteArray], { type: mime });
+    }
+
+    startBtn.onclick = async () => {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      mediaRecorder = new MediaRecorder(stream);
+
+      audioChunks = [];
+      mediaRecorder.ondataavailable = event => {
+        if (event.data.size > 0) audioChunks.push(event.data);
+      };
+
+      mediaRecorder.onstop = () => {
+        const audioBlob = new Blob(audioChunks, { type: "audio/wav" });
+        audioBlob.arrayBuffer().then(buffer => {
+          socket.send(buffer);
+          log("🎤 Voice sent to server");
+        });
+      };
+
+      mediaRecorder.start();
+      startBtn.disabled = true;
+      stopBtn.disabled = false;
+      log("🎙️ Recording started...");
+    };
+
+    stopBtn.onclick = () => {
+      mediaRecorder.stop();
+      startBtn.disabled = false;
+      stopBtn.disabled = true;
+      log("⏹️ Recording stopped");
+    };
+
+    function log(message) {
+      const p = document.createElement("p");
+      p.textContent = message;
+      logDiv.appendChild(p);
+    }
+  </script>
+</body>
+</html>

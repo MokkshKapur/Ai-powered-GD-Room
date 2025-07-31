@@ -1,0 +1,281 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>AI Discussion Room</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        #status {
+            margin-bottom: 20px;
+            padding: 10px;
+            border-radius: 5px;
+            text-align: center;
+            font-weight: bold;
+        }
+        .connected { background-color: #d4edda; color: #155724; }
+        .disconnected { background-color: #f8d7da; color: #721c24; }
+        .connecting { background-color: #fff3cd; color: #856404; }
+
+        #messages {
+            margin-bottom: 20px;
+            height: 400px;
+            overflow-y: auto;
+            border: 1px solid #ddd;
+            border-radius: 8px;
+            padding: 15px;
+            background-color: white;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .message {
+            margin: 8px 0;
+            padding: 10px;
+            border-radius: 8px;
+            animation: fadeIn 0.3s ease-in;
+        }
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        .message.system {
+            background-color: #e9ecef;
+            color: #495057;
+        }
+        .message.user {
+            background-color: #e3f2fd;
+            color: #0d47a1;
+        }
+        .message.agent {
+            background-color: #f3e5f5;
+            color: #4a148c;
+        }
+        .controls {
+            text-align: center;
+            margin-top: 20px;
+        }
+        #recordButton {
+            padding: 12px 24px;
+            font-size: 16px;
+            cursor: pointer;
+            border: none;
+            border-radius: 25px;
+            background-color: #4CAF50;
+            color: white;
+            transition: all 0.3s ease;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+        }
+        #recordButton:hover {
+            background-color: #45a049;
+            transform: translateY(-1px);
+        }
+        #recordButton.recording {
+            background-color: #f44336;
+            animation: pulse 1.5s infinite;
+        }
+        @keyframes pulse {
+            0% { transform: scale(1); }
+            50% { transform: scale(1.05); }
+            100% { transform: scale(1); }
+        }
+        .audio-indicator {
+            display: inline-block;
+            margin-left: 10px;
+            width: 16px;
+            height: 16px;
+        }
+        .speaking {
+            animation: speak 0.5s infinite alternate;
+        }
+        @keyframes speak {
+            from { opacity: 0.5; }
+            to { opacity: 1; }
+        }
+        #debugInfo {
+            margin-top: 20px;
+            padding: 10px;
+            background-color: #f8f9fa;
+            border-radius: 5px;
+            font-family: monospace;
+            font-size: 12px;
+            display: none;
+        }
+    </style>
+</head>
+<body>
+    <h1 style="text-align: center;">AI Discussion Room</h1>
+    <div id="status" class="connecting">Connecting...</div>
+    <div id="messages"></div>
+    <div class="controls">
+        <button id="recordButton">Start Recording</button>
+    </div>
+    <div id="debugInfo"></div>
+
+    <script>
+        let socket;
+        let isRecording = false;
+        let mediaRecorder;
+        let audioChunks = [];
+        let audioQueue = [];
+        let isPlaying = false;
+
+        function updateStatus(status, type) {
+            const statusDiv = document.getElementById('status');
+            statusDiv.textContent = status;
+            statusDiv.className = type;
+        }
+
+        function addMessage(text, type, sender = '') {
+            const messages = document.getElementById('messages');
+            const messageDiv = document.createElement('div');
+            messageDiv.className = `message ${type}`;
+            messageDiv.textContent = sender ? `${sender}: ${text}` : text;
+            messages.appendChild(messageDiv);
+            messages.scrollTop = messages.scrollHeight;
+            return messageDiv;
+        }
+
+        function debug(info) {
+            const debugDiv = document.getElementById('debugInfo');
+            debugDiv.style.display = 'block';
+            debugDiv.innerHTML += `<div>${new Date().toISOString()}: ${info}</div>`;
+            debugDiv.scrollTop = debugDiv.scrollHeight;
+        }
+
+        async function playNextAudio() {
+            if (audioQueue.length === 0 || isPlaying) {
+                return;
+            }
+
+            isPlaying = true;
+            const { audio, messageDiv, sender } = audioQueue[0];
+
+            try {
+                messageDiv.textContent = `${sender} is speaking...`;
+                await audio.play();
+                await new Promise(resolve => audio.onended = resolve);
+                messageDiv.textContent = `${sender}: (Finished speaking)`;
+            } catch (e) {
+                debug(`Play error: ${e.message}`);
+                messageDiv.textContent = `${sender}: (Audio failed to play)`;
+            }
+
+            audioQueue.shift(); // Remove the played audio from queue
+            isPlaying = false;
+            playNextAudio(); // Play next audio if available
+        }
+
+        function initWebSocket() {
+            socket = new WebSocket('ws://localhost:8000/ws/gd');
+
+            socket.onopen = function(e) {
+                debug('WebSocket connected');
+                updateStatus('Connected', 'connected');
+            };
+
+            socket.onclose = function(e) {
+                debug('WebSocket closed');
+                updateStatus('Disconnected', 'disconnected');
+                setTimeout(initWebSocket, 5000); // Attempt to reconnect
+            };
+
+            socket.onerror = function(e) {
+                debug('WebSocket error');
+                updateStatus('Connection Error', 'disconnected');
+            };
+
+            socket.onmessage = function(event) {
+                try {
+                    const data = JSON.parse(event.data);
+                    if (data.sender && data.audio) {
+                        debug(`Received audio from ${data.sender}: ${data.audio.length} bytes`);
+
+                        const messageDiv = addMessage('Waiting to speak...', 'agent', data.sender);
+                        const audio = new Audio(`data:audio/mp3;base64,${data.audio}`);
+
+                        audio.onloadeddata = () => debug('Audio loaded');
+                        audio.onerror = (e) => {
+                            debug(`Audio error: ${e.message}`);
+                            messageDiv.textContent = `${data.sender}: (Audio failed to load)`;
+                        };
+
+                        // Add to queue instead of playing immediately
+                        audioQueue.push({
+                            audio: audio,
+                            messageDiv: messageDiv,
+                            sender: data.sender
+                        });
+
+                        // Try to play next audio
+                        playNextAudio();
+                    } else {
+                        addMessage(event.data, 'system');
+                    }
+                } catch (e) {
+                    if (typeof event.data === 'string') {
+                        addMessage(event.data, 'system');
+                    }
+                }
+            };
+        }
+
+        async function initAudioRecording() {
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                mediaRecorder = new MediaRecorder(stream, {
+                    mimeType: 'audio/webm;codecs=opus'
+                });
+
+                mediaRecorder.ondataavailable = (event) => {
+                    if (event.data.size > 0) {
+                        audioChunks.push(event.data);
+                    }
+                };
+
+                mediaRecorder.onstop = () => {
+                    const audioBlob = new Blob(audioChunks, { type: 'audio/webm;codecs=opus' });
+                    debug(`Sending audio: ${audioBlob.size} bytes`);
+                    socket.send(audioBlob);
+                    audioChunks = [];
+                };
+
+                debug('Audio recording initialized');
+            } catch (err) {
+                debug(`Microphone error: ${err.message}`);
+                alert('Error accessing microphone. Please ensure you have a working microphone and you\'ve granted permission to use it.');
+            }
+        }
+
+        function toggleRecording() {
+            if (!socket || socket.readyState !== WebSocket.OPEN) {
+                alert('WebSocket is not connected. Please wait for connection.');
+                return;
+            }
+
+            const recordButton = document.getElementById('recordButton');
+
+            if (!isRecording) {
+                mediaRecorder.start();
+                isRecording = true;
+                recordButton.textContent = 'Stop Recording';
+                recordButton.classList.add('recording');
+                addMessage('Recording...', 'user');
+            } else {
+                mediaRecorder.stop();
+                isRecording = false;
+                recordButton.textContent = 'Start Recording';
+                recordButton.classList.remove('recording');
+            }
+        }
+
+        window.onload = function() {
+            initWebSocket();
+            initAudioRecording();
+            document.getElementById('recordButton').onclick = toggleRecording;
+        };
+    </script>
+</body>
+</html>
